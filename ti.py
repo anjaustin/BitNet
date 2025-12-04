@@ -41,7 +41,7 @@ PRESETS = {
 }
 
 CONTROL_PROMPTS = {
-    "Philosophical": "Hypothetically speaking, might reflective recursion yield profound insights into the human cognition?",
+    "Philosophical": "Hypothetically speaking, might reflective recursion yield profound insights into human cognition?",
     "Coding": "Write a fun C++ program that implements a bubble sort algorithm in a reflective recursive function."
 }
 

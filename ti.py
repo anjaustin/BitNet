@@ -16,7 +16,7 @@ PRESETS = {
         "min_p": 0.05,
         "repeat_penalty": 1.29,
         "presence_penalty": 1.29,
-        "frequency_penalty": 1.29,
+        "frequency_penalty": 1.29
     },
     "3spresso": {  # PhD student on third espresso - high temp lucid dream
         "temperature": 74,
@@ -26,7 +26,7 @@ PRESETS = {
         "min_p": 0.05,
         "repeat_penalty": 1.29,
         "presence_penalty": 1.29,
-        "frequency_penalty": 1.29,
+        "frequency_penalty": 1.29
     },
     "Freedom90": {  # A friend.
         "temperature": 1.031,
@@ -36,7 +36,7 @@ PRESETS = {
         "min_p": 0.0521,
         "repeat_penalty": 1.29,
         "presence_penalty": 1.29,
-        "frequency_penalty": 1.29,
+        "frequency_penalty": 1.29
     }
 }
 

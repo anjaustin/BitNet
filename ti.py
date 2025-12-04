@@ -6,9 +6,9 @@ import argparse
 import subprocess
 import tempfile
 
-SYSTEM_PROMPT = (
+SYSTEM_PROMPTS = {
     "friend": "You are a friend."
-)
+}
 
 # Presets discovered through Mirostat parameter exploration
 PRESETS = {
@@ -41,6 +41,26 @@ PRESETS = {
         "repeat_penalty": 1.29,
         "presence_penalty": 1.29,
         "frequency_penalty": 1.29
+    },
+    "Life_Coach": {  # A life coach.
+        "temperature": 1.031,
+        "mirostat": 2,
+        "mirostat_ent": 4.337,
+        "mirostat_lr": 0.0733,
+        "min_p": 0.0521,
+        "repeat_penalty": 1.07,
+        "presence_penalty": 1.25,
+        "frequency_penalty": 1.17
+    },
+    "XXX": {  # Experimental
+        "temperature": 1.031,
+        "mirostat": 2,
+        "mirostat_ent": 3.1618,
+        "mirostat_lr": 0.0733,
+        "min_p": 0.0521,
+        "repeat_penalty": 1.07,
+        "presence_penalty": 1.27,
+        "frequency_penalty": 1.2
     }
 }
 

@@ -6,8 +6,6 @@ import argparse
 import subprocess
 import tempfile
 
-"""echo "Greetings, my friend!" | python3 ti.py -p "You are a friend." """
-
 # Presets discovered through Mirostat parameter exploration
 PRESETS = {
     "philosopher": {  # Cites real sources, commits to positions

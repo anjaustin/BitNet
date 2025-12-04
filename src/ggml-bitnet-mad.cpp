@@ -13,6 +13,13 @@
 #define QK_I2_S 128
 #define QK_I2 128
 
+// ZEN1 VPSIGNB OPTIMIZATION FLAG
+// DISABLED - semantic mismatch discovered:
+// maddubs treats weights as unsigned multipliers {0,1,2} -> 0*act, 1*act, 2*act
+// sign approach treats them as ternary {-1,0,+1} -> -act, 0, act
+// The model was trained with maddubs semantics, can't change without retraining
+// #define BITNET_ZEN1_VPSIGNB 1
+
 #if defined(__AVX__) || defined(__AVX2__) || defined(__AVX512F__) || defined(__SSSE3__)
 #include <immintrin.h>
 // horizontally add 8 int32_t
@@ -23,6 +30,18 @@ static inline int hsum_i32_8(const __m256i a) {
     const __m128i hi32  = _mm_shuffle_epi32(sum64, _MM_SHUFFLE(2, 3, 0, 1));
     return _mm_cvtsi128_si32(_mm_add_epi32(sum64, hi32));
 }
+
+#if defined(BITNET_ZEN1_VPSIGNB) && defined(__AVX2__)
+// ZEN1 OPTIMIZATION: Sum int8 vector to int16 accumulator
+// Extends int8 to int16 and adds to accumulator
+static inline void accumulate_i8_to_i16(__m256i* accu, const __m256i prod) {
+    // Extract low and high 128-bit halves, extend to int16, accumulate
+    __m256i lo = _mm256_cvtepi8_epi16(_mm256_castsi256_si128(prod));
+    __m256i hi = _mm256_cvtepi8_epi16(_mm256_extracti128_si256(prod, 1));
+    *accu = _mm256_add_epi16(*accu, lo);
+    *accu = _mm256_add_epi16(*accu, hi);
+}
+#endif
 #elif defined(__loongarch_asx)
 // horizontally add 8 int32_t
 static inline int hsum_i32_8(const __m256i a) {
@@ -155,6 +174,32 @@ void ggml_vec_dot_i2_i8_s(int n, float * s, size_t bs, const void * vx, size_t b
         // each block maximum 4 * 256
         // each block accumulation maximum 127 * 256
         // each 32 group index (128 index in one group) needs cast to int32
+
+#if defined(BITNET_ZEN1_VPSIGNB)
+        // ZEN1 VPSIGNB OPTIMIZATION: Use sign operation instead of multiply
+        // Convert weights from {0,1,2} to {-1,0,+1}
+        const __m256i one = _mm256_set1_epi8(1);
+        xq8_0 = _mm256_sub_epi8(xq8_0, one);
+        xq8_1 = _mm256_sub_epi8(xq8_1, one);
+        xq8_2 = _mm256_sub_epi8(xq8_2, one);
+        xq8_3 = _mm256_sub_epi8(xq8_3, one);
+
+        // Apply sign operation: sign_epi8(activation, weight)
+        // If weight < 0: negate activation
+        // If weight = 0: zero
+        // If weight > 0: keep activation
+        __m256i prod_0 = _mm256_sign_epi8(yq8_0, xq8_0);
+        __m256i prod_1 = _mm256_sign_epi8(yq8_1, xq8_1);
+        __m256i prod_2 = _mm256_sign_epi8(yq8_2, xq8_2);
+        __m256i prod_3 = _mm256_sign_epi8(yq8_3, xq8_3);
+
+        // Accumulate int8 results to int16
+        accumulate_i8_to_i16(&accu32, prod_0);
+        accumulate_i8_to_i16(&accu32, prod_1);
+        accumulate_i8_to_i16(&accu32, prod_2);
+        accumulate_i8_to_i16(&accu32, prod_3);
+#else
+        // Original maddubs implementation
         xq8_0 = _mm256_maddubs_epi16(xq8_0, yq8_0);
         xq8_1 = _mm256_maddubs_epi16(xq8_1, yq8_1);
         xq8_2 = _mm256_maddubs_epi16(xq8_2, yq8_2);
@@ -162,6 +207,7 @@ void ggml_vec_dot_i2_i8_s(int n, float * s, size_t bs, const void * vx, size_t b
 
         accu32 = _mm256_add_epi16(accu32, _mm256_add_epi16(xq8_0, xq8_1));
         accu32 = _mm256_add_epi16(accu32, _mm256_add_epi16(xq8_2, xq8_3));
+#endif
         }
         accu = _mm256_add_epi32(_mm256_madd_epi16(accu32, _mm256_set1_epi16(1)), accu);
     }
@@ -194,6 +240,25 @@ void ggml_vec_dot_i2_i8_s(int n, float * s, size_t bs, const void * vx, size_t b
         // each block maximum 4 * 256
         // each block accumulation maximum 127 * 256
         // each 32 group index (128 index in one group) needs cast to int32
+
+#if defined(BITNET_ZEN1_VPSIGNB)
+        // ZEN1 VPSIGNB OPTIMIZATION (leftover loop)
+        const __m256i one_la = _mm256_set1_epi8(1);
+        xq8_0 = _mm256_sub_epi8(xq8_0, one_la);
+        xq8_1 = _mm256_sub_epi8(xq8_1, one_la);
+        xq8_2 = _mm256_sub_epi8(xq8_2, one_la);
+        xq8_3 = _mm256_sub_epi8(xq8_3, one_la);
+
+        __m256i prod_0_la = _mm256_sign_epi8(yq8_0, xq8_0);
+        __m256i prod_1_la = _mm256_sign_epi8(yq8_1, xq8_1);
+        __m256i prod_2_la = _mm256_sign_epi8(yq8_2, xq8_2);
+        __m256i prod_3_la = _mm256_sign_epi8(yq8_3, xq8_3);
+
+        accumulate_i8_to_i16(&accula, prod_0_la);
+        accumulate_i8_to_i16(&accula, prod_1_la);
+        accumulate_i8_to_i16(&accula, prod_2_la);
+        accumulate_i8_to_i16(&accula, prod_3_la);
+#else
         xq8_0 = _mm256_maddubs_epi16(xq8_0, yq8_0);
         xq8_1 = _mm256_maddubs_epi16(xq8_1, yq8_1);
         xq8_2 = _mm256_maddubs_epi16(xq8_2, yq8_2);
@@ -201,6 +266,7 @@ void ggml_vec_dot_i2_i8_s(int n, float * s, size_t bs, const void * vx, size_t b
 
         accula = _mm256_add_epi16(accula, _mm256_add_epi16(xq8_0, xq8_1));
         accula = _mm256_add_epi16(accula, _mm256_add_epi16(xq8_2, xq8_3));
+#endif
         }
         accu = _mm256_add_epi32(accu, _mm256_madd_epi16(accula, _mm256_set1_epi16(1)));
     }

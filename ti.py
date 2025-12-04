@@ -40,6 +40,11 @@ PRESETS = {
     }
 }
 
+CONTROL_PROMPTS = {
+    "Philosophical": "Hypothetically speaking, might reflective recursion yield profound insights into the human cognition?",
+    "Coding": "Write a fun C++ program that implements a bubble sort algorithm in a reflective recursive function."
+}
+
 def format_chat_prompt(system_prompt: str, user_message: str) -> str:
     """Format prompt using LLaMA 3 chat template for BitNet-b1.58-2B-4T.
     Note: llama-cli adds BOS token automatically, so we don't include <|begin_of_text|>

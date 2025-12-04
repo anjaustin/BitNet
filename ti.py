@@ -7,7 +7,7 @@ import subprocess
 import tempfile
 
 SYSTEM_PROMPT = (
-    "You are a friend."
+    "friend": "You are a friend."
 )
 
 # Presets discovered through Mirostat parameter exploration

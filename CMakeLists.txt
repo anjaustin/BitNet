@@ -38,6 +38,23 @@ endif()
 
 find_package(Threads REQUIRED)
 
+# Add BitNet dithering library
+add_library(bitnet_dithering STATIC
+    src/bitnet_dithering.cpp
+    include/bitnet_dithering.h
+)
+
+target_include_directories(bitnet_dithering PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+)
+
+target_link_libraries(bitnet_dithering Threads::Threads)
+
+target_compile_definitions(bitnet_dithering PUBLIC
+    BITNET_DITHERING_ENABLED=1
+)
+
 add_subdirectory(src)
 set(LLAMA_BUILD_SERVER ON CACHE BOOL "Build llama.cpp server" FORCE)
 add_subdirectory(3rdparty/llama.cpp)

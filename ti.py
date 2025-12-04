@@ -31,11 +31,11 @@ PRESETS = {
         "frequency_penalty": 1.29,
     },
     "Freedom90": {  # A friend.
-        "temperature": 0.528,
+        "temperature": 1.031,
         "mirostat": 2,
         "mirostat_ent": 1.448,
         "mirostat_lr": 0.0733,
-        "min_p": 0.04911,
+        "min_p": 0.0521,
         "repeat_penalty": 1.29,
         "presence_penalty": 1.29,
         "frequency_penalty": 1.29,

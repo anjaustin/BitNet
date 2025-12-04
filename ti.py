@@ -52,21 +52,42 @@ PRESETS = {
         "presence_penalty": 1.25,
         "frequency_penalty": 1.17
     },
-    "XXX": {  # Experimental
+    "YeagerSThompson": {  # Experimental writer
         "temperature": 1.031,
         "mirostat": 2,
-        "mirostat_ent": 3.1618,
+        "mirostat_ent": 3.3618,
         "mirostat_lr": 0.0733,
         "min_p": 0.0521,
         "repeat_penalty": 1.07,
-        "presence_penalty": 1.27,
+        "presence_penalty": 1.25,
         "frequency_penalty": 1.2
+    },
+    "BananaOnionBillBurr": {  # Fever Pitch Bill Burr *Maximum Absurdity*, Banana Onion Fever Dream
+        "temperature": 0.9639,
+        "mirostat": 2,
+        "mirostat_ent": 3.4327,
+        "mirostat_lr": 0.0733,
+        "min_p": 0.0521,
+        "repeat_penalty": 1.08,
+        "presence_penalty": 1.32,
+        "frequency_penalty": 1.16
+    },
+    "BillBurr": {  # Experimental Bill Burr
+        "temperature": 1.033,
+        "mirostat": 2,
+        "mirostat_ent": 3.4327,
+        "mirostat_lr": 0.0733,
+        "min_p": 0.0521,
+        "repeat_penalty": 1.08,
+        "presence_penalty": 1.2852,
+        "frequency_penalty": 1.16
     }
 }
 
 CONTROL_PROMPTS = {
     "Philosophical": "Hypothetically speaking, might reflective recursion yield profound insights into human cognition?",
-    "Coding": "Write a fun C++ program that implements a bubble sort algorithm in a reflective recursive function."
+    "Coding": "Write a fun C++ program that implements a bubble sort algorithm in a reflective recursive function.",
+    "Bill_Burr": "Rant about the challenges of modern dating and technology in the comedic style of Bill Burr.",
 }
 
 def format_chat_prompt(system_prompt: str, user_message: str) -> str:

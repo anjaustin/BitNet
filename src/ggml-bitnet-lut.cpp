@@ -9,6 +9,10 @@
 #include "ggml-quants.h"
 #include "bitnet-lut-kernels.h"
 
+#if defined(BITNET_DITHERING_ENABLED)
+#include "bitnet_dithering.h"
+#endif
+
 #if defined(GGML_BITNET_ARM_TL1)
 
 void ggml_bitnet_init(void) {
@@ -18,6 +22,10 @@ void ggml_bitnet_init(void) {
         return;
     }
     initialized = true;
+
+#if defined(BITNET_DITHERING_ENABLED)
+    bitnet_dithering_init();
+#endif
 
     // if (wrapper == nullptr) {
     //     wrapper = new BITNET::BITNETGeMMWrapper<bitnet_bitnet_float_type>();
@@ -35,6 +43,10 @@ void ggml_bitnet_free(void) {
         return;
     }
     initialized = false;
+
+#if defined(BITNET_DITHERING_ENABLED)
+    bitnet_dithering_cleanup();
+#endif
 
     // delete wrapper;
     // wrapper = nullptr;
@@ -103,6 +115,10 @@ void ggml_bitnet_init(void) {
     }
     initialized = true;
 
+#if defined(BITNET_DITHERING_ENABLED)
+    bitnet_dithering_init();
+#endif
+
     // if (wrapper == nullptr) {
     //     wrapper = new BITNET::BITNETGeMMWrapper<bitnet_bitnet_float_type>();
     // }
@@ -119,6 +135,10 @@ void ggml_bitnet_free(void) {
         return;
     }
     initialized = false;
+
+#if defined(BITNET_DITHERING_ENABLED)
+    bitnet_dithering_cleanup();
+#endif
 
     // delete wrapper;
     // wrapper = nullptr;

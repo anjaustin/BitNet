@@ -6,6 +6,10 @@
 #include <cmath>
 #include <cstring>
 
+#if defined(BITNET_DITHERING_ENABLED)
+#include "bitnet_dithering.h"
+#endif
+
 #define QK_I2_S 128
 #define QK_I2 128
 
@@ -50,20 +54,34 @@ size_t quantize_i2_s(const float * src, void * dst, int64_t nrow, int64_t n_per_
 
     int n = nrow * n_per_row;
 
+#if defined(BITNET_DITHERING_ENABLED)
+    // Apply ordered dithering before quantization
+    float* dithered_src = (float*)malloc(n * sizeof(float));
+    memcpy(dithered_src, src, n * sizeof(float));
+    
+    if (bitnet_should_apply_dithering(dithered_src, n)) {
+        BitNetDitheringConfig config = bitnet_get_dithering_config();
+        bitnet_apply_ordered_dithering(dithered_src, n, 0, &config);
+    }
+    const float* weights_to_quantize = dithered_src;
+#else
+    const float* weights_to_quantize = src;
+#endif
+
     // f32 -> q8
     double max = 0;
     for (int i = 0; i < n; ++i) {
-        max = fmax(max, (double)fabs((double)src[i]));
+        max = fmax(max, (double)fabs((double)weights_to_quantize[i]));
     }
     double i2_scale = max;
 
     uint8_t* q8 = (uint8_t*)malloc(n * sizeof(uint8_t));
     for (int i=0; i<n; i++) {
-        if (fabs((double)(src[i])) < 1e-6) {
+        if (fabs((double)(weights_to_quantize[i])) < 1e-6) {
             q8[i] = 1;
             continue;
         }
-        q8[i] = (double)src[i] * i2_scale > 0 ? 2 : 0;
+        q8[i] = (double)weights_to_quantize[i] * i2_scale > 0 ? 2 : 0;
     }
 
     memset(dst, 0, n * sizeof(uint8_t) / 4);
@@ -86,6 +104,10 @@ size_t quantize_i2_s(const float * src, void * dst, int64_t nrow, int64_t n_per_
     scale_ptr[0] = i2_scale;
 
     free(q8);
+
+#if defined(BITNET_DITHERING_ENABLED)
+    free(dithered_src);
+#endif
 
     // 32B for alignment
     return nrow * row_size / 4 + 32;

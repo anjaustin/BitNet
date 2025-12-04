@@ -1744,7 +1744,7 @@ def do_dump_model(model_plus: ModelPlus) -> None:
 
 def main(args_in: list[str] | None = None) -> None:
     output_choices = ["f32", "f16", "i2"]
-    if np.uint32(1) == np.uint32(1).newbyteorder("<"):
+    if sys.byteorder == 'little':
         # We currently only support Q8_0 output on little endian systems.
         output_choices.append("q8_0")
     parser = argparse.ArgumentParser(description="Convert a LLaMA model to a GGML compatible file")

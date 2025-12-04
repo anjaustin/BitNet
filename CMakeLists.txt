@@ -59,6 +59,9 @@ add_subdirectory(src)
 set(LLAMA_BUILD_SERVER ON CACHE BOOL "Build llama.cpp server" FORCE)
 add_subdirectory(3rdparty/llama.cpp)
 
+# Link dithering library to ggml (which contains the BitNet kernels)
+target_link_libraries(ggml PRIVATE bitnet_dithering)
+
 # install
 
 include(GNUInstallDirs)

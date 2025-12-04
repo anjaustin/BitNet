@@ -36,6 +36,22 @@ if (CMAKE_C_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     add_compile_options(-fpermissive)
 endif()
 
+# Zen 1 (Ryzen 1600) Architecture Optimization
+# - Forces 16-byte loop alignment for Zen 1 decoder
+# - Schedules for 256-bit AVX2 split into 2x128-bit micro-ops
+# - Enables FMA3 optimization
+# - Note: llama.cpp requires finite math, so we can't use -ffinite-math-only
+if (CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64" AND NOT WIN32)
+    message(STATUS "Enabling Zen 1 (znver1) architecture optimizations")
+    add_compile_options(
+        -march=znver1
+        -mtune=znver1
+        -fno-trapping-math
+        -fno-math-errno
+        -fno-signed-zeros
+    )
+endif()
+
 find_package(Threads REQUIRED)
 
 # Add BitNet dithering library

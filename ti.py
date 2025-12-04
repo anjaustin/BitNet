@@ -6,6 +6,10 @@ import argparse
 import subprocess
 import tempfile
 
+SYSTEM_PROMPT = (
+    "You are a friend."
+)
+
 # Presets discovered through Mirostat parameter exploration
 PRESETS = {
     "philosopher": {  # Cites real sources, commits to positions

@@ -153,7 +153,9 @@ class Model(ABC):
             self.gguf_writer.add_expert_used_count(n_experts_used)
             logger.info(f"gguf: experts used count = {n_experts_used}")
 
-        self.gguf_writer.add_file_type(self.ftype)
+        # Convert to int for gguf writer (handles both enum and I2S_Type)
+        ftype_int = self.ftype.value if hasattr(self.ftype, 'value') else int(self.ftype)
+        self.gguf_writer.add_file_type(ftype_int)
         logger.info(f"gguf: file type = {self.ftype}")
 
     def write_tensors(self):
@@ -672,6 +674,112 @@ def transform_to_tl2(x: np.ndarray):
     return res, scale
 
 
+def transform_to_i2_s(x: np.ndarray):
+    """
+    OPERATION VELVET REVOLVER: Signal Reconstruction for I2_S
+    
+    A 4-stage pipeline inspired by FFmpeg signal processing:
+    1. Scale Extraction - Save magnitude for later reconstruction
+    2. Unsharp Masking - Enhance edges before crushing
+    3. Golden Ratio Dithering - Decorrelate quantization noise  
+    4. Quantization - Project to ternary {-1, 0, +1}
+    
+    Returns: (packed_data, scale_tensor)
+    - packed_data: I2_S packed weights (uint8)
+    - scale_tensor: Per-row scales (float32) as SEPARATE tensor
+    """
+    BLOCK_SIZE = 128
+    PHI = 1.61803398875  # Golden Ratio
+    UNSHARP_SIGMA = 1.0  # Gaussian blur sigma
+    UNSHARP_STRENGTH = 0.5  # Edge enhancement strength
+    DITHER_STRENGTH = 0.2  # Golden noise amplitude
+    
+    # Ensure 2D
+    if x.ndim == 1:
+        weights_2d = x.reshape(1, -1).astype(np.float32)
+    else:
+        weights_2d = x.astype(np.float32)
+    
+    n_rows, n_cols = weights_2d.shape
+    original_cols = n_cols
+    
+    # Pad columns to multiple of block size
+    if n_cols % BLOCK_SIZE != 0:
+        pad_len = BLOCK_SIZE - (n_cols % BLOCK_SIZE)
+        weights_2d = np.pad(weights_2d, ((0, 0), (0, pad_len)), 'constant')
+        n_cols = weights_2d.shape[1]
+    
+    # ========================================
+    # STAGE 1: SCALE EXTRACTION (per-row)
+    # ========================================
+    # Calculate mean absolute value per row - this is our magnitude
+    scales = np.mean(np.abs(weights_2d), axis=1)
+    scales[scales < 1e-10] = 1.0  # Avoid divide-by-zero
+    
+    # Normalize weights by their row scales
+    w_norm = weights_2d / scales[:, None]
+    
+    # ========================================
+    # STAGE 2: UNSHARP MASKING (edge enhancement)
+    # ========================================
+    # "Exaggerate before crushing" - preserve decision boundary edges
+    try:
+        from scipy.ndimage import gaussian_filter1d
+        w_blurred = gaussian_filter1d(w_norm, sigma=UNSHARP_SIGMA, axis=1)
+        w_detail = w_norm - w_blurred
+        w_sharpened = w_norm + UNSHARP_STRENGTH * w_detail
+    except ImportError:
+        # Fallback: skip unsharp if scipy not available
+        w_sharpened = w_norm
+    
+    # ========================================
+    # STAGE 3: GOLDEN RATIO DITHERING
+    # ========================================
+    # Deterministic noise pattern using φ - prevents quantization banding
+    # The irrational nature of φ ensures no repeating patterns
+    flat_indices = np.arange(weights_2d.size)
+    golden_noise = (flat_indices * PHI) % 1.0  # Fractional part
+    golden_noise = (golden_noise - 0.5) * DITHER_STRENGTH  # Center and scale
+    golden_noise = golden_noise.reshape(weights_2d.shape)
+    
+    w_dithered = w_sharpened + golden_noise
+    
+    # ========================================
+    # STAGE 4: QUANTIZATION (the crush)
+    # ========================================
+    w_clipped = np.clip(w_dithered, -1, 1)
+    w_ternary = np.round(w_clipped).astype(np.int8)  # {-1, 0, +1}
+    
+    # Map ternary to I2_S encoding: -1 -> 0, 0 -> 1, +1 -> 2
+    q_weights = (w_ternary + 1).astype(np.uint8)
+    
+    # ========================================
+    # PACKING (columnar interleaving)
+    # ========================================
+    # Reshape into blocks of 128
+    blocks = q_weights.reshape(-1, BLOCK_SIZE)
+    
+    # Columnar interleaving: 4 groups of 32
+    g0 = blocks[:, 0:32]
+    g1 = blocks[:, 32:64]
+    g2 = blocks[:, 64:96]
+    g3 = blocks[:, 96:128]
+    
+    # Pack 4 values per byte
+    packed = (g0 << 6) | (g1 << 4) | (g2 << 2) | g3
+    packed_flat = packed.flatten().astype(np.uint8)
+    
+    # Velvet Revolver: Embed dummy scale (1.0) at end for kernel compatibility
+    # The I2_S kernel reads a single scalar from offset (ne00 * ne01 / 4)
+    # We embed 1.0 so the kernel's internal scaling is a no-op
+    # Real per-row scales are applied via ggml_mul in the graph
+    dummy_scale = np.array([1.0], dtype=np.float32).view(np.uint8)
+    packed_with_dummy = np.concatenate([packed_flat, dummy_scale])
+    
+    # Return packed data (with dummy) and SEPARATE per-row scale tensor
+    return packed_with_dummy, scales.astype(np.float32)
+
+
 def read_model_config(model_dir: str) -> dict[str, Any]:
     config = os.path.join(model_dir, "config.json")
     if not os.path.exists(config):
@@ -808,6 +916,11 @@ class LlamaModel(Model):
                         assert data.dtype == np.uint8
                         assert i2_scale.dtype == np.float32
                         data_qtype = gguf.GGMLQuantizationType.TL2
+                    elif (self.ftype == GGML_TYPE_I2_S or (hasattr(self.ftype, 'value') and self.ftype.value == 36)) and suit_i2:  # I2_S (type 36)
+                        data, i2_scale = transform_to_i2_s(data)
+                        assert data.dtype == np.uint8
+                        assert i2_scale.dtype == np.float32  # Velvet Revolver: separate scale tensor
+                        data_qtype = GGML_TYPE_I2_S
                     else:  # default to float16 for quantized tensors
                         if data_dtype != np.float16:
                             data = data.astype(np.float16)
@@ -824,11 +937,17 @@ class LlamaModel(Model):
                 shape_str = f"{{{', '.join(str(n) for n in reversed(shape))}}}"
 
                 # n_dims is implicit in the shape
-                logger.info(f"{f'%-{max_name_len}s' % f'{new_name},'} {old_dtype} --> {data_qtype.name}, shape = {shape_str}")
+                qtype_name = data_qtype.name if hasattr(data_qtype, 'name') else f"TYPE_{data_qtype}"
+                logger.info(f"{f'%-{max_name_len}s' % f'{new_name},'} {old_dtype} --> {qtype_name}, shape = {shape_str}")
 
                 self.gguf_writer.add_tensor(new_name, data, raw_shape=shape, raw_dtype=data_qtype)
                 if i2_scale is not None:
-                    self.gguf_writer.add_tensor(new_name + "_scale", i2_scale, raw_dtype=gguf.GGMLQuantizationType.F32)
+                    # Velvet Revolver: write scale tensor with correct naming
+                    # llama.cpp expects: blk.{i}.attn_q.scale (not blk.{i}.attn_q.weight_scale)
+                    scale_name = new_name.replace(".weight", ".scale") if new_name.endswith(".weight") else new_name + ".scale"
+                    scale_shape = i2_scale.shape
+                    logger.info(f"  [Velvet Revolver] Writing scale tensor: {scale_name}, shape = {scale_shape}")
+                    self.gguf_writer.add_tensor(scale_name, i2_scale, raw_shape=scale_shape, raw_dtype=gguf.GGMLQuantizationType.F32)
 
 
     def set_gguf_parameters(self):
@@ -952,12 +1071,16 @@ class LlamaModel(Model):
                 raise ValueError(f"Unprocessed experts: {experts}")
 
 
-@Model.register("BitnetForCausalLM")
+@Model.register("BitnetForCausalLM", "BitNetForCausalLM")
 class BitnetModel(Model):
     model_arch = gguf.MODEL_ARCH.BITNET
 
     def set_vocab(self):
-        self._set_vocab_sentencepiece()
+        # Try SentencePiece first (for 3B model), fallback to GPT2 (for 2B model)
+        try:
+            self._set_vocab_sentencepiece()
+        except FileNotFoundError:
+            self._set_vocab_gpt2()
         
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
@@ -1058,6 +1181,11 @@ class BitnetModel(Model):
                         assert data.dtype == np.uint8
                         assert i2_scale.dtype == np.float32
                         data_qtype = gguf.GGMLQuantizationType.TL2
+                    elif (self.ftype == GGML_TYPE_I2_S or (hasattr(self.ftype, 'value') and self.ftype.value == 36)) and suit_i2:  # I2_S (type 36)
+                        data, i2_scale = transform_to_i2_s(data)
+                        assert data.dtype == np.uint8
+                        assert i2_scale.dtype == np.float32  # Velvet Revolver: separate scale tensor
+                        data_qtype = GGML_TYPE_I2_S
                     else:  # default to float16 for quantized tensors
                         if data_dtype != np.float16:
                             data = data.astype(np.float16)
@@ -1074,21 +1202,49 @@ class BitnetModel(Model):
                 shape_str = f"{{{', '.join(str(n) for n in reversed(shape))}}}"
 
                 # n_dims is implicit in the shape
-                logger.info(f"{f'%-{max_name_len}s' % f'{new_name},'} {old_dtype} --> {data_qtype.name}, shape = {shape_str}")
+                qtype_name = data_qtype.name if hasattr(data_qtype, 'name') else f"TYPE_{data_qtype}"
+                logger.info(f"{f'%-{max_name_len}s' % f'{new_name},'} {old_dtype} --> {qtype_name}, shape = {shape_str}")
 
                 self.gguf_writer.add_tensor(new_name, data, raw_shape=shape, raw_dtype=data_qtype)
                 if i2_scale is not None:
-                    self.gguf_writer.add_tensor(new_name + "_scale", i2_scale, raw_dtype=gguf.GGMLQuantizationType.F32)
+                    # Velvet Revolver: write scale tensor with correct naming
+                    # llama.cpp expects: blk.{i}.attn_q.scale (not blk.{i}.attn_q.weight_scale)
+                    scale_name = new_name.replace(".weight", ".scale") if new_name.endswith(".weight") else new_name + ".scale"
+                    scale_shape = i2_scale.shape
+                    logger.info(f"  [Velvet Revolver] Writing scale tensor: {scale_name}, shape = {scale_shape}")
+                    self.gguf_writer.add_tensor(scale_name, i2_scale, raw_shape=scale_shape, raw_dtype=gguf.GGMLQuantizationType.F32)
 
 
 ###### CONVERSION LOGIC ######
 
+
+# I2_S type (36 in this codebase) - create a proper wrapper class that mimics enum
+class I2S_Type:
+    """Wrapper for I2_S type (36) that works with gguf writer and struct.pack"""
+    value = 36  # GGML_TYPE_I2_S = 36 in this codebase
+    name = "I2_S"
+    def __eq__(self, other):
+        if hasattr(other, 'value'):
+            return self.value == other.value
+        return self.value == other
+    def __hash__(self):
+        return hash(self.value)
+    def __repr__(self):
+        return f"I2_S"
+    def __int__(self):
+        return self.value
+    def __index__(self):
+        # Required for struct.pack to work
+        return self.value
+
+GGML_TYPE_I2_S = I2S_Type()
 
 ftype_map = {
     "f32": gguf.GGMLQuantizationType.F32,
     "f16": gguf.GGMLQuantizationType.F16,
     "tl1" : gguf.GGMLQuantizationType.TL1,
     "tl2" : gguf.GGMLQuantizationType.TL2,
+    "i2_s": GGML_TYPE_I2_S,
 }
 
 

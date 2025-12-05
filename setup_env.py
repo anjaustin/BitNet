@@ -128,22 +128,8 @@ def prepare_model():
         logging.info(f"Converting HF model to GGUF format...")
         if quant_type.startswith("tl"):
             run_command([sys.executable, "utils/convert-hf-to-gguf-bitnet.py", model_dir, "--outtype", quant_type, "--quant-embd"], log_step="convert_to_tl")
-        else: # i2s
-            # convert to f32
-            run_command([sys.executable, "utils/convert-hf-to-gguf-bitnet.py", model_dir, "--outtype", "f32"], log_step="convert_to_f32_gguf")
-            f32_model = os.path.join(model_dir, "ggml-model-f32.gguf")
-            i2s_model = os.path.join(model_dir, "ggml-model-i2_s.gguf")
-            # quantize to i2s
-            if platform.system() != "Windows":
-                if quant_embd:
-                    run_command(["./build/bin/llama-quantize", "--token-embedding-type", "f16", f32_model, i2s_model, "I2_S", "1", "1"], log_step="quantize_to_i2s")
-                else:
-                    run_command(["./build/bin/llama-quantize", f32_model, i2s_model, "I2_S", "1"], log_step="quantize_to_i2s")
-            else:
-                if quant_embd:
-                    run_command(["./build/bin/Release/llama-quantize", "--token-embedding-type", "f16", f32_model, i2s_model, "I2_S", "1", "1"], log_step="quantize_to_i2s")
-                else:
-                    run_command(["./build/bin/Release/llama-quantize", f32_model, i2s_model, "I2_S", "1"], log_step="quantize_to_i2s")
+        else: # i2s - use Python converter directly (Velvet Revolver)
+            run_command([sys.executable, "utils/convert-hf-to-gguf-bitnet.py", model_dir, "--outtype", "i2_s", "--quant-embd"], log_step="convert_to_i2s")
 
         logging.info(f"GGUF model saved at {gguf_path}")
     else:
